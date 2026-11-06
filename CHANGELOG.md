@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.3.0 — 2026-11-06
+- **Retargeting between humanoid skeletons** (own implementation, rest-pose aware: world-space delta transfer with per-bone direction alignment; hips translation scaled by leg height; IK-style detached hands/feet follow their limbs). Works automatically when importing clips from a different skeleton.
+- **Studio Combat Pack** — 17 original keyframed clips (CC0): Fight_Stance, Jab_L, Cross_R, Hook_R, Uppercut_R, Spinning_Backfist, Front_Kick_R, Side_Kick_R, Spin_Kick_360, Jump_Kick_Front, Backflip, Roll_Forward, Hit_React, Fall_Back, Get_Up, Block_High, Dodge_Side. One tap: retargeted to the current character.
+- **Chain weapon**: equipped weapon is thrown on an animated chain (instanced links, sagging curve), hits (arena hit registration + impact burst) and returns to the hand; combo event “chain”; optional slow-motion.
+- **Sword/weapon light trail** (ribbon from blade base to tip, element colour).
+- VFX: ice impacts throw real ice shards; fire impacts emit rising embers.
+- Humanoid detection fixed for three.js-sanitized names (`UpperArm.L` → `UpperArmL`).
+- Bug fixed: retargeted clips' last frame wrapped to the first frame.
+- Image→3D: free Hugging Face Space could not be reached/tested from the build environment → marked **unavailable** in the UI (personal free server still supported).
+- ENGINE_EXPORT_GUIDE.md (Godot / Unity glTFast / GDevelop). Export verified by re-import + playback.
+- Tests: 29 unit, 33 e2e (real WebGL). Proof GIF: docs/proof-combat-moves.gif.
+
 ## 0.2.1 — 2026-11-06
 - Image→3D: separate **Gallery** button (opens Android photo picker for photos/videos) and **Camera** button (photo or video).
 - Videos: original kept; 4–24 evenly spaced frames extracted at native resolution (PNG) as reference images.

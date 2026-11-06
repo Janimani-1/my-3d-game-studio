@@ -16,8 +16,15 @@ function norm(n: string): string {
   return n.replace(/^.*[:|]/, '').toLowerCase();
 }
 
+const PART_WORDS = '(arm|hand|leg|foot|shoulder|palm\\d?|thigh|calf|shin|knee|ankle|wrist|clavicle|upleg|elbow)';
+const TRAIL_L = new RegExp(`${PART_WORDS}l$`);
+const TRAIL_R = new RegExp(`${PART_WORDS}r$`);
+
 export function sideOf(name: string): 'L' | 'R' | null {
   const n = norm(name);
+  // sanitized Blender names lose the dot: "UpperArm.L" → "UpperArmL"
+  if (TRAIL_L.test(n)) return 'L';
+  if (TRAIL_R.test(n)) return 'R';
   if (/(^|[^a-z])(left|l)([^a-z]|$)|left|\.l$|_l$|^l_/.test(n) && !/(^|[^a-z])r([^a-z]|$)|right/.test(n)) return 'L';
   if (/(^|[^a-z])(right|r)([^a-z]|$)|right|\.r$|_r$|^r_/.test(n)) return 'R';
   return null;

@@ -437,6 +437,85 @@ await step('27 offline: reload without network → app + 3D engine + robot rende
   await ctx.setOffline(false);
 });
 
+await step('29 combat pack: 17 original clips retargeted to robot skeleton; kick moves the leg', async () => {
+  await ctx.setOffline(false);
+  await nav('projects');
+  await tid('load-sample').click();
+  await tid('import-result').waitFor();
+  await nav('animate');
+  await page.waitForFunction(() => (window.__m3gsViewer?.renderInfo().triangles ?? 0) >= 3237, null, { timeout: 30000 });
+  await tid('add-pack').click();
+  await page.waitForFunction(() => window.__m3gsViewer?.clipInfo().length >= 31, null, { timeout: 30000 });
+  const src = await page.evaluate(() => window.__m3gsViewer.clipInfo().filter((c) => /retargeted/.test(c.source)).length);
+  assert.equal(src, 17);
+  // the right foot must move > 15% of body height during Front_Kick_R
+  const travel = await page.evaluate(async () => {
+    const v = window.__m3gsViewer;
+    const i = v.clipInfo().findIndex((c) => c.name === 'Front_Kick_R');
+    const foot = v.bones.find((b) => b.name === 'FootR');
+    v.selectClip(i); v.play(); v.pause();
+    const pts = [];
+    for (const t of [0, 0.45]) { v.seek(t); foot.updateMatrixWorld(true); pts.push(foot.getWorldPosition(foot.position.clone())); }
+    return pts[0].distanceTo(pts[1]) / v.height;
+  });
+  assert.ok(travel > 0.15, `foot travel ${travel.toFixed(3)}`);
+  await clipBtn('Side_Kick_R').click();
+  await page.waitForTimeout(450);
+  await drawnFraction('29-retargeted-side-kick.png');
+});
+
+await step('30 chain weapon: thrown, travels > 0.8 body heights, returns to the hand', async () => {
+  await nav('weapons');
+  await tid('weapon-toggle').check();
+  await tid('weapon-axe').click();
+  await page.waitForTimeout(300);
+  const before = await page.evaluate(() => window.__m3gsViewer.weapon.getWorldPosition(window.__m3gsViewer.weapon.position.clone()).toArray());
+  await tid('throw-chain').click();
+  await page.waitForTimeout(380);
+  const mid = await page.evaluate(() => ({ active: window.__m3gsViewer.chainActive, p: window.__m3gsViewer.weapon.getWorldPosition(window.__m3gsViewer.weapon.position.clone()).toArray(), h: window.__m3gsViewer.height }));
+  await drawnFraction('30-chain-throw.png');
+  assert.ok(mid.active, 'chain not active');
+  const d = Math.hypot(mid.p[0] - before[0], mid.p[1] - before[1], mid.p[2] - before[2]) / mid.h;
+  assert.ok(d > 0.8, `travel ${d.toFixed(2)}`);
+  await page.waitForTimeout(1500);
+  const back = await page.evaluate(() => ({ active: window.__m3gsViewer.chainActive, parent: window.__m3gsViewer.weapon.parent.type }));
+  assert.equal(back.active, false);
+  assert.equal(back.parent, 'Bone');
+});
+
+await step('31 sword light trail renders during a spinning attack', async () => {
+  await tid('weapon-sword').click();
+  await tid('trail-toggle').check();
+  await page.evaluate(() => { const v = window.__m3gsViewer; const i = v.clipInfo().findIndex((c) => c.name === 'Spinning_Backfist'); v.setLoop(true); v.selectClip(i); v.play(); });
+  await page.waitForTimeout(500);
+  const n = await page.evaluate(() => window.__m3gsViewer.trail.mesh.geometry.drawRange.count);
+  await drawnFraction('31-sword-trail.png');
+  assert.ok(n > 6, `trail triangles ${n}`);
+});
+
+await step('32 combo with chain event + export GLB with retargeted clips → re-import & play', async () => {
+  await nav('animate');
+  const [dl] = await Promise.all([page.waitForEvent('download', { timeout: 30000 }), (async () => { await nav('export'); await tid('export-glb').click(); })()]);
+  const pth = join(tmp, 'engine-ready.glb');
+  await dl.saveAs(pth);
+  const bytes = readFileSync(pth);
+  const jl = bytes.readUInt32LE(12);
+  const j = JSON.parse(bytes.subarray(20, 20 + jl).toString());
+  const names = j.animations.map((a) => a.name);
+  for (const nm of ['Front_Kick_R', 'Backflip', 'Spin_Kick_360', 'Roll_Forward', 'Fall_Back', 'Get_Up']) assert.ok(names.includes(nm), `missing ${nm}`);
+  // re-import the exported file as a new project: it must render and play the retargeted clip
+  await nav('projects');
+  await tid('file-input').setInputFiles(pth);
+  await tid('import-result').waitFor();
+  await nav('animate');
+  await page.waitForFunction(() => (window.__m3gsViewer?.renderInfo().triangles ?? 0) >= 3000, null, { timeout: 30000 });
+  await page.waitForFunction(() => window.__m3gsViewer.clipInfo().some((c) => c.name === 'Backflip'), null, { timeout: 15000 });
+  await clipBtn('Backflip').click();
+  await page.waitForTimeout(600);
+  await drawnFraction('32-reimported-backflip.png');
+  writeFileSync(join(shots, 'engine-export-info.json'), JSON.stringify({ bytes: bytes.length, animations: names.length, sample: names.slice(-17) }));
+});
+
 const unexpected = consoleErrors.filter((e) => !/localhost:1\b|ERR_CONNECTION_REFUSED|Failed to load resource|net::ERR_INTERNET_DISCONNECTED|ERR_FAILED/i.test(e));
 await step('28 no unexpected console errors', async () => {
   assert.deepEqual(unexpected, []);

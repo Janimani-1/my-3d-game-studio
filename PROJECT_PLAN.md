@@ -2,20 +2,16 @@
 
 > **Resume in a new session:** give Claude this file + `docs/EXECUTION_BRIEF.md` (latest brief, authoritative) + `docs/ORIGINAL_SPEC.md` (full original spec) + `FEATURE_STATUS.md`. Repo: https://github.com/Janimani-1/my-3d-game-studio (only this repo may be touched). Live: https://janimani-1.github.io/my-3d-game-studio/. Reply to the owner in **Persian**. The owner wants a Meshy-like workflow (photo → mesh → rig → animate → export) built independently — never copy Meshy code/assets.
 
-## ⚠️ Cost policy (owner instruction, 2026-11-06) — mandatory
-The project must remain **100% free** during development and testing.
-- Never activate paid APIs, paid GPU servers, subscriptions, or any service requiring payment or a payment method.
-- Use only genuinely free and legally permitted tools (check licenses; EU/Germany restrictions apply).
-- If a feature cannot be implemented for free, mark it clearly as **unavailable** in the UI and docs, and keep improving the other features.
-- Never request payment without the owner's explicit approval.
-- Current status: compliant — GitHub Pages (free), all libraries open-source, no paid services. Image→3D needs a GPU: only free options (owner's own PC, Google Colab free tier, free public Hugging Face Spaces after privacy opt-in) may be considered; otherwise it stays unavailable.
-
 ## v0.2.0 delivered (2026-11-06) — see FEATURE_STATUS.md for the full matrix
 Bundled Three.js + offline; RobotExpressive CC0 demo (14 clips); animation library + crossfade + clip import; combo editor with VFX events; 61-move catalog; fire/ice/energy/lightning VFX; 7 weapons on hand sockets; 2-character arena; bone inspector + humanoid detection; image→3D client + FastAPI/TripoSR backend; new-GLB export; schema v2. 27 unit + 28 e2e (real WebGL) tests.
 
+## v0.3.0 delivered (2026-11-06)
+Retargeting (own rest-pose-aware implementation), Studio Combat Pack (17 CC0 clips), chain weapon, weapon trails, ice shards/embers, engine export guide. Free HF image-to-3D could not be tested → marked unavailable.
+
 ## Next priorities (in order)
 1. Owner's on-device results (TEST_PLAN_ANDROID_FA.md) → fix issues first.
-2. **Auto-rigging backend adapter** (evaluate UniRig / other open-source riggers: license, VRAM, quality) + in-app "Rig" step; fallback: template humanoid skeleton fitting with distance-based skin weights for A/T-pose meshes.
+2. More combat clips (mirrored left versions, kick combos, cartwheel, flying kick, grapples), animation layering (upper/lower body).
+3. **Auto-rigging backend adapter** (evaluate UniRig / other open-source riggers: license, VRAM, quality) + in-app "Rig" step; fallback: template humanoid skeleton fitting with distance-based skin weights for A/T-pose meshes.
 3. **Retargeting** between skeletons (humanoid slot map → SkeletonUtils.retargetClip), mirroring L/R.
 4. Free CC0 animation packs (e.g. Quaternius) as importable libraries; fill combat catalog.
 5. Chain weapon (throw/recall, segmented chain), sword trails, draw/sheath.
@@ -24,7 +20,7 @@ Bundled Three.js + offline; RobotExpressive CC0 demo (14 clips); animation libra
 8. Engine export guides (Godot/Unity/GDevelop), sprite-sheet VFX export, FBX only with a tested converter.
 9. Web Worker parsing for large files; package-lock.json committed via CI.
 
-Paid GPU services or APIs: **forbidden** (see Cost policy) unless the owner explicitly approves.
+Paid GPU services or APIs: **only with the owner's explicit approval**.
 
 ---
 

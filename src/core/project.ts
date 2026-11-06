@@ -48,7 +48,7 @@ export interface ComboStep {
   trimStart: number;
   trimEnd: number;
   eventAt: number; // 0..1 or -1
-  eventVfx: 'none' | 'projectile' | 'beam' | 'beam2' | 'lightning';
+  eventVfx: 'none' | 'projectile' | 'beam' | 'beam2' | 'lightning' | 'chain';
 }
 
 export interface Combo {

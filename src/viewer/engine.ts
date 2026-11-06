@@ -5,7 +5,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { VfxSystem, type VfxMode, type VfxParams } from './vfx';
 import { buildWeapon, disposeObject, type WeaponElement, type WeaponType } from './weapons';
-import { detectHumanoid, trackCompatibility, type Slot } from '../core/rig';
+import { detectHumanoid, trackCompatibility, SLOTS, type Slot } from '../core/rig';
 
 export type ViewPreset = 'front' | 'back' | 'left' | 'right' | 'top';
 
@@ -43,7 +43,7 @@ export interface SequenceStep {
   trimStart: number; // 0..1
   trimEnd: number; // 0..1
   eventAt: number; // 0..1, -1 = none
-  eventVfx: VfxMode | 'none';
+  eventVfx: VfxMode | 'none' | 'chain';
 }
 
 export interface WeaponConfig {
@@ -139,6 +139,8 @@ export class Viewer {
   private seq: { steps: SequenceStep[]; idx: number; elapsed: number; dur: number; fired: boolean; action: any; loop: boolean } | null = null;
   private arena: { cfg: ArenaConfig; opp: any; mixer: any; box: any; helper: any; markers: any[]; hits: number; cooldown: number; flash: number; mats: any[]; idleAction: any } | null = null;
   private lastVfx: VfxParams | null = null;
+  private chain: { t: number; speed: number; hand: any; local: { p: any; q: any; s: any }; target: any; ctrl: any; links: any; hit: boolean } | null = null;
+  private trail: { mesh: any; samples: { a: any; b: any }[]; on: boolean; color: any } | null = null;
   speed = 1;
   loop = true;
   playing = false;
@@ -244,6 +246,8 @@ export class Viewer {
     this.updateSequence(dt);
     if (this.mixer) this.mixer.update(dt);
     this.updateArena(dt);
+    this.updateChain(dt);
+    this.updateTrail();
     this.vfx?.update(dt);
     if (this.boneMarker && this.markedBone) this.markedBone.getWorldPosition(this.boneMarker.position);
     this.controls.update();
@@ -353,7 +357,7 @@ export class Viewer {
   }
 
   /** Import animation clips from another GLB/GLTF. Only clips whose tracks target bones that exist here are added. */
-  async importClips(blob: Blob, sourceName: string): Promise<{ added: string[]; rejected: { name: string; reason: string }[] }> {
+  async importClips(blob: Blob, sourceName: string): Promise<{ added: string[]; retargeted: string[]; rejected: { name: string; reason: string }[] }> {
     if (!this.model) throw new Error('No model');
     const url = URL.createObjectURL(blob);
     try {
@@ -361,12 +365,14 @@ export class Viewer {
       const names: string[] = [];
       this.model.traverse((o: any) => o.name && names.push(o.name));
       const added: string[] = [];
+      const retargeted: string[] = [];
       const rejected: { name: string; reason: string }[] = [];
+      const pending: any[] = [];
       for (const clip of gltf.animations ?? []) {
         const targets = clip.tracks.map((t: any) => t.name.split('.')[0]);
         const c = trackCompatibility(targets, names);
         if (c.total === 0 || c.matched / c.total < 0.6) {
-          rejected.push({ name: clip.name, reason: `${c.matched}/${c.total}` });
+          pending.push(clip);
           continue;
         }
         const kept = clip.clone();
@@ -378,8 +384,23 @@ export class Viewer {
         this.clipSources.push(sourceName);
         added.push(nm);
       }
+      if (pending.length) {
+        // Different skeleton → retarget via humanoid bone mapping (rest-pose aware).
+        const src = gltf.scene || gltf.scenes?.[0];
+        const out = src ? this.retargetClips(src, pending) : { clips: [], reason: 'no source skeleton' };
+        if (!out.clips.length) for (const c of pending) rejected.push({ name: c.name, reason: out.reason });
+        for (const c of out.clips) {
+          let nm = c.name;
+          while (this.clips.some((x) => x.name === nm)) nm += '+';
+          c.name = nm;
+          this.clips.push(c);
+          this.clipSources.push(sourceName + ' (retargeted)');
+          added.push(nm);
+          retargeted.push(nm);
+        }
+      }
       if (!(gltf.animations ?? []).length) rejected.push({ name: sourceName, reason: '0' });
-      return { added, rejected };
+      return { added, retargeted, rejected };
     } finally {
       URL.revokeObjectURL(url);
     }
@@ -592,7 +613,8 @@ export class Viewer {
     const step = s.steps[s.idx];
     if (!s.fired && step.eventAt >= 0 && s.elapsed >= step.eventAt * s.dur) {
       s.fired = true;
-      if (step.eventVfx !== 'none' && this.lastVfx) this.castVfx(step.eventVfx, this.lastVfx);
+      if (step.eventVfx === 'chain') this.throwChain();
+      else if (step.eventVfx !== 'none' && this.lastVfx) this.castVfx(step.eventVfx, this.lastVfx);
     }
     const next = s.idx + 1 < s.steps.length ? s.idx + 1 : s.loop ? 0 : -1;
     const fade = next >= 0 ? Math.min(s.steps[next].fade, s.dur * 0.5) : 0;
@@ -783,6 +805,281 @@ export class Viewer {
     const idleChanged = this.arena.cfg.opponentClip !== cfg.opponentClip;
     this.arena.cfg = cfg;
     if (idleChanged) this.playOpponentIdle();
+  }
+
+  // ---------------------------------------------------------------- retargeting
+  /**
+   * Retarget clips from another humanoid skeleton onto this model.
+   * For every mapped bone: W_t = A · (S_t · S0⁻¹) · A⁻¹ · T0  (world space), where S0/T0 are the
+   * source/target rest world rotations and A aligns the source rest bone direction with the target's
+   * (handles T-pose ↔ A-pose differences). Hips translation is scaled by leg-height ratio.
+   * Limitation: bone twist around its own axis is approximated.
+   */
+  retargetClips(srcRoot: any, clips: any[]): { clips: any[]; reason: string } {
+    const srcBones: any[] = [];
+    srcRoot.traverse((o: any) => o.isBone && srcBones.push(o));
+    const sMap = detectHumanoid(srcBones.map((b) => b.name));
+    const tMap = detectHumanoid(this.bones.map((b) => b.name));
+    const slots = SLOTS.filter((s) => sMap[s] && tMap[s]);
+    if (!sMap.hips || !tMap.hips || slots.length < 8) return { clips: [], reason: `humanoid mapping ${slots.length}/17` };
+
+    const tgt = SkeletonUtils.clone(this.model);
+    tgt.traverse((o: any) => o.isSkinnedMesh && o.skeleton.pose());
+    srcRoot.traverse((o: any) => o.isSkinnedMesh && o.skeleton.pose());
+    tgt.updateMatrixWorld(true);
+    srcRoot.updateMatrixWorld(true);
+    const sB = (s: Slot) => srcRoot.getObjectByName(sMap[s]!);
+    const tB = (s: Slot) => tgt.getObjectByName(tMap[s]!);
+    const wq = (o: any) => o.getWorldQuaternion(new THREE.Quaternion());
+    const wp = (o: any) => o.getWorldPosition(new THREE.Vector3());
+    const CHILD: Partial<Record<Slot, Slot>> = { hips: 'spine', spine: 'chest', chest: 'neck', neck: 'head', leftUpperArm: 'leftLowerArm', leftLowerArm: 'leftHand', rightUpperArm: 'rightLowerArm', rightLowerArm: 'rightHand', leftUpperLeg: 'leftLowerLeg', leftLowerLeg: 'leftFoot', rightUpperLeg: 'rightLowerLeg', rightLowerLeg: 'rightFoot' };
+    const PARENT: Partial<Record<Slot, Slot>> = { leftHand: 'leftLowerArm', rightHand: 'rightLowerArm', leftFoot: 'leftLowerLeg', rightFoot: 'rightLowerLeg', head: 'neck' };
+    const depth = (o: any) => { let d = 0; for (let p = o.parent; p; p = p.parent) d++; return d; };
+    const info = slots
+      .map((s) => ({ s, sb: sB(s), tb: tB(s) }))
+      .filter((x) => x.sb && x.tb)
+      .sort((a, b) => depth(a.tb) - depth(b.tb))
+      .map((x) => ({ ...x, S0inv: wq(x.sb).invert(), T0: wq(x.tb), A: new THREE.Quaternion(), Ainv: new THREE.Quaternion(), rest: x.tb.quaternion.clone() }));
+    const bySlot = new Map(info.map((x) => [x.s, x]));
+    for (const x of info) {
+      const c = CHILD[x.s];
+      if (x.s !== 'hips' && c && bySlot.has(c)) {
+        const sd = wp(bySlot.get(c)!.sb).sub(wp(x.sb)).normalize();
+        const td = wp(bySlot.get(c)!.tb).sub(wp(x.tb)).normalize();
+        if (sd.lengthSq() > 0 && td.lengthSq() > 0) x.A.setFromUnitVectors(sd, td);
+      }
+    }
+    for (const x of info) {
+      const p = PARENT[x.s];
+      if (p && bySlot.has(p) && !CHILD[x.s]) x.A.copy(bySlot.get(p)!.A);
+      x.Ainv.copy(x.A).invert();
+    }
+    // IK-style rigs: hands/feet that are not children of their limb follow the limb rigidly (rest offset).
+    const isDesc = (o: any, anc: any) => { for (let p = o.parent; p; p = p.parent) if (p === anc) return true; return false; };
+    const rigid: { tb: any; pb: any; rel: any; restQ: any; restP: any }[] = [];
+    for (const s of ['leftHand', 'rightHand', 'leftFoot', 'rightFoot'] as Slot[]) {
+      const p = PARENT[s]!;
+      const pb = bySlot.get(p)?.tb;
+      const tb = tMap[s] ? tgt.getObjectByName(tMap[s]!) : null;
+      if (!pb || !tb || isDesc(tb, pb)) continue;
+      const rel = pb.matrixWorld.clone().invert().multiply(tb.matrixWorld);
+      rigid.push({ tb, pb, rel, restQ: tb.quaternion.clone(), restP: tb.position.clone() });
+      const i = info.findIndex((x) => x.tb === tb);
+      if (i >= 0) info.splice(i, 1); // driven rigidly instead of by rotation transfer
+    }
+    const hips = bySlot.get('hips')!;
+    const tBox = new THREE.Box3().setFromObject(tgt);
+    const sBox = new THREE.Box3().setFromObject(srcRoot);
+    const sH0 = wp(hips.sb);
+    const tH0 = wp(hips.tb);
+    const scale = Math.max(1e-6, tH0.y - tBox.min.y) / Math.max(1e-6, sH0.y - (sBox.isEmpty() ? 0 : sBox.min.y));
+    const hipsRestPos = hips.tb.position.clone();
+
+    const out: any[] = [];
+    const W = new THREE.Quaternion();
+    const P = new THREE.Quaternion();
+    for (const clip of clips) {
+      const mixer = new THREE.AnimationMixer(srcRoot);
+      const act = mixer.clipAction(clip);
+      act.setLoop(THREE.LoopOnce, 1); // sampling the last frame must not wrap to frame 0
+      act.clampWhenFinished = true;
+      act.play();
+      const fps = 30;
+      const n = Math.max(2, Math.ceil(clip.duration * fps) + 1);
+      const times = new Float32Array(n);
+      const qv = info.map(() => new Float32Array(n * 4));
+      const pv = new Float32Array(n * 3);
+      const rq = rigid.map(() => new Float32Array(n * 4));
+      const rp = rigid.map(() => new Float32Array(n * 3));
+      const M = new THREE.Matrix4();
+      const tmpP = new THREE.Vector3();
+      const tmpQ = new THREE.Quaternion();
+      const tmpS = new THREE.Vector3();
+      for (let f = 0; f < n; f++) {
+        const t = Math.min(clip.duration, f / fps);
+        times[f] = t;
+        mixer.setTime(Math.min(t, clip.duration - 1e-4));
+        srcRoot.updateMatrixWorld(true);
+        info.forEach((x, k) => {
+          W.copy(wq(x.sb)).multiply(x.S0inv); // world delta from rest
+          W.premultiply(x.A).multiply(x.Ainv).multiply(x.T0);
+          x.tb.parent.getWorldQuaternion(P);
+          const local = P.invert().multiply(W).normalize();
+          if (f > 0) {
+            const o = (f - 1) * 4;
+            const prev = qv[k];
+            if (local.x * prev[o] + local.y * prev[o + 1] + local.z * prev[o + 2] + local.w * prev[o + 3] < 0) local.set(-local.x, -local.y, -local.z, -local.w);
+          }
+          x.tb.quaternion.copy(local);
+          x.tb.updateMatrixWorld(true);
+          qv[k].set([local.x, local.y, local.z, local.w], f * 4);
+        });
+        const delta = wp(hips.sb).sub(sH0).multiplyScalar(scale);
+        const world = tH0.clone().add(delta);
+        const lp = hips.tb.parent.worldToLocal(world);
+        pv.set([lp.x, lp.y, lp.z], f * 3);
+        hips.tb.position.copy(lp);
+        tgt.updateMatrixWorld(true);
+        rigid.forEach((r, k) => {
+          M.copy(r.tb.parent.matrixWorld).invert().multiply(r.pb.matrixWorld).multiply(r.rel);
+          M.decompose(tmpP, tmpQ, tmpS);
+          rq[k].set([tmpQ.x, tmpQ.y, tmpQ.z, tmpQ.w], f * 4);
+          rp[k].set([tmpP.x, tmpP.y, tmpP.z], f * 3);
+        });
+      }
+      mixer.stopAllAction();
+      mixer.uncacheRoot(srcRoot);
+      for (const x of info) x.tb.quaternion.copy(x.rest);
+      for (const r of rigid) {
+        r.tb.quaternion.copy(r.restQ);
+        r.tb.position.copy(r.restP);
+      }
+      hips.tb.position.copy(hipsRestPos);
+      const tracks = info.map((x, k) => new THREE.QuaternionKeyframeTrack(`${x.tb.name}.quaternion`, times, qv[k]));
+      rigid.forEach((r, k) => {
+        tracks.push(new THREE.QuaternionKeyframeTrack(`${r.tb.name}.quaternion`, times, rq[k]));
+        tracks.push(new THREE.VectorKeyframeTrack(`${r.tb.name}.position`, times, rp[k]));
+      });
+      tracks.push(new THREE.VectorKeyframeTrack(`${hips.tb.name}.position`, times, pv));
+      out.push(new THREE.AnimationClip(clip.name, clip.duration, tracks));
+    }
+    return { clips: out, reason: '' };
+  }
+
+  // ---------------------------------------------------------------- chain weapon
+  /** Throw the equipped weapon on a chain toward the opponent (or forward) and pull it back to the hand. */
+  throwChain(speed = 1): boolean {
+    if (!this.weapon || this.chain || !this.weapon.parent) return false;
+    const hand = this.weapon.parent;
+    const local = { p: this.weapon.position.clone(), q: this.weapon.quaternion.clone(), s: this.weapon.scale.clone() };
+    const from = this.weapon.getWorldPosition(new THREE.Vector3());
+    let target: any;
+    if (this.arena) target = this.arena.box.getCenter(new THREE.Vector3()).setY(from.y);
+    else target = from.clone().addScaledVector(this.forward(), this.height * 1.1);
+    const ctrl = from.clone().lerp(target, 0.5).add(new THREE.Vector3(0, this.height * 0.35, 0));
+    this.scene.attach(this.weapon);
+    const N = 30;
+    const links = new THREE.InstancedMesh(new THREE.TorusGeometry(this.height * 0.012, this.height * 0.0035, 6, 12), new THREE.MeshStandardMaterial({ color: 0x9aa3ad, metalness: 0.9, roughness: 0.35 }), N);
+    links.frustumCulled = false;
+    this.scene.add(links);
+    this.chain = { t: 0, speed: Math.max(0.05, speed), hand, local, target, ctrl, links, hit: false };
+    return true;
+  }
+
+  get chainActive() {
+    return !!this.chain;
+  }
+
+  private updateChain(dt: number) {
+    const c = this.chain;
+    if (!c || !this.weapon) return;
+    c.t += dt * c.speed;
+    dt *= c.speed;
+    const OUT = 0.45, HOLD = 0.12, BACK = 0.45;
+    const handPos = c.hand.getWorldPosition(new THREE.Vector3());
+    const bez = (a: any, b: any, k: number) => {
+      const p = a.clone().multiplyScalar((1 - k) * (1 - k));
+      return p.addScaledVector(c.ctrl, 2 * (1 - k) * k).addScaledVector(b, k * k);
+    };
+    if (c.t < OUT) {
+      const k = 1 - Math.pow(1 - c.t / OUT, 2);
+      this.weapon.position.copy(bez(handPos, c.target, k));
+      this.weapon.rotateX(dt * 22);
+    } else if (c.t < OUT + HOLD) {
+      if (!c.hit) {
+        c.hit = true;
+        this.vfx?.burst(c.target.clone(), this.lastVfx ?? { element: 'energy', color: '#b07bff', size: 1, speed: 1, duration: 1, intensity: 1 }, 0.9);
+        if (this.arena && this.arena.box.distanceToPoint(c.target) < this.height * 0.2) this.registerHit();
+      }
+      this.weapon.position.copy(c.target);
+    } else if (c.t < OUT + HOLD + BACK) {
+      const k = Math.pow((c.t - OUT - HOLD) / BACK, 2);
+      this.weapon.position.copy(bez(c.target, handPos, k));
+      this.weapon.rotateX(-dt * 22);
+    } else {
+      c.hand.attach(this.weapon);
+      this.weapon.position.copy(c.local.p);
+      this.weapon.quaternion.copy(c.local.q);
+      this.weapon.scale.copy(c.local.s);
+      this.scene.remove(c.links);
+      c.links.geometry.dispose();
+      c.links.material.dispose();
+      this.chain = null;
+      return;
+    }
+    // chain links along a sagging curve from hand to weapon
+    const wpos = this.weapon.getWorldPosition(new THREE.Vector3());
+    const dist = handPos.distanceTo(wpos);
+    const sag = this.height * 0.25 * Math.max(0, 1 - dist / (this.height * 1.8));
+    const mid = handPos.clone().lerp(wpos, 0.5).add(new THREE.Vector3(0, -sag, 0));
+    const N = c.links.count;
+    const m = new THREE.Object3D();
+    let prev = handPos.clone();
+    for (let i = 0; i < N; i++) {
+      const k = (i + 1) / N;
+      const p = handPos.clone().multiplyScalar((1 - k) * (1 - k)).addScaledVector(mid, 2 * (1 - k) * k).addScaledVector(wpos, k * k);
+      m.position.copy(prev.clone().lerp(p, 0.5));
+      m.lookAt(p);
+      m.rotateZ(i % 2 ? Math.PI / 2 : 0);
+      m.updateMatrix();
+      c.links.setMatrixAt(i, m.matrix);
+      prev = p;
+    }
+    c.links.instanceMatrix.needsUpdate = true;
+  }
+
+  // ---------------------------------------------------------------- sword trail
+  setTrail(on: boolean, color = '#9fe8ff') {
+    if (!this.trail) {
+      const MAX = 26;
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(MAX * 2 * 3), 3).setUsage(THREE.DynamicDrawUsage));
+      g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(MAX * 2 * 3), 3).setUsage(THREE.DynamicDrawUsage));
+      const idx: number[] = [];
+      for (let i = 0; i < MAX - 1; i++) idx.push(i * 2, i * 2 + 1, i * 2 + 2, i * 2 + 1, i * 2 + 3, i * 2 + 2);
+      g.setIndex(idx);
+      const mesh = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
+      mesh.frustumCulled = false;
+      this.scene.add(mesh);
+      this.trail = { mesh, samples: [], on, color: new THREE.Color(color) };
+    }
+    this.trail.on = on;
+    this.trail.color.set(color);
+    this.trail.samples = [];
+    this.trail.mesh.visible = on;
+  }
+
+  private updateTrail() {
+    const tr = this.trail;
+    if (!tr || !tr.on) return;
+    const tip = this.weapon?.getObjectByName('tip');
+    const base = this.weapon?.getObjectByName('trailBase');
+    const MAX = 26;
+    if (tip && base) {
+      const a = base.getWorldPosition(new THREE.Vector3());
+      const b = tip.getWorldPosition(new THREE.Vector3());
+      const last = tr.samples[tr.samples.length - 1];
+      if (!last || last.b.distanceTo(b) > this.height * 0.004) tr.samples.push({ a, b });
+      else tr.samples.shift();
+    } else tr.samples.shift();
+    while (tr.samples.length > MAX) tr.samples.shift();
+    const pos = tr.mesh.geometry.attributes.position;
+    const col = tr.mesh.geometry.attributes.color;
+    const n = tr.samples.length;
+    for (let i = 0; i < MAX; i++) {
+      const s = tr.samples[Math.min(i, n - 1)];
+      const k = n > 1 ? Math.min(i, n - 1) / (n - 1) : 0;
+      const f = i < n ? k * k : 0;
+      if (s) {
+        pos.setXYZ(i * 2, s.a.x, s.a.y, s.a.z);
+        pos.setXYZ(i * 2 + 1, s.b.x, s.b.y, s.b.z);
+      }
+      col.setXYZ(i * 2, tr.color.r * f * 0.3, tr.color.g * f * 0.3, tr.color.b * f * 0.3);
+      col.setXYZ(i * 2 + 1, tr.color.r * f, tr.color.g * f, tr.color.b * f);
+    }
+    pos.needsUpdate = true;
+    col.needsUpdate = true;
+    tr.mesh.geometry.setDrawRange(0, Math.max(0, (n - 1) * 6));
   }
 
   // ---------------------------------------------------------------- export

@@ -38,6 +38,19 @@ test('humanoid detection: Mixamo and Unreal naming', () => {
   assert.equal(sideOf('LeftHand'), 'L');
 });
 
+test('humanoid detection: three.js-sanitized names (dots removed)', () => {
+  const m = detectHumanoid(['Hips', 'Abdomen', 'Torso', 'Neck', 'Head', 'ShoulderL', 'UpperArmL', 'LowerArmL', 'Palm2L', 'ShoulderR', 'UpperArmR', 'LowerArmR', 'Palm2R', 'UpperLegL', 'LowerLegL', 'FootL', 'UpperLegR', 'LowerLegR', 'FootR']);
+  assert.equal(m.leftUpperArm, 'UpperArmL');
+  assert.equal(m.rightLowerArm, 'LowerArmR');
+  assert.equal(m.leftHand, 'Palm2L');
+  assert.equal(m.rightUpperLeg, 'UpperLegR');
+  assert.equal(m.leftFoot, 'FootL');
+  assert.ok(missingSlots(m).length <= 1, JSON.stringify(missingSlots(m)));
+  // mannequin (combat pack source) names
+  const k = detectHumanoid(['Hips', 'Spine', 'Chest', 'Neck', 'Head', 'LeftUpperArm', 'LeftLowerArm', 'LeftHand', 'RightUpperArm', 'RightLowerArm', 'RightHand', 'LeftUpperLeg', 'LeftLowerLeg', 'RightUpperLeg', 'RightLowerLeg']);
+  assert.equal(missingSlots(k).join(), 'leftFoot,rightFoot');
+});
+
 test('track compatibility detects mismatched skeletons', () => {
   assert.deepEqual(trackCompatibility(['Hips', 'Hips', 'Head'], ['Hips', 'Head', 'Foo']), { matched: 2, total: 2, missing: [] });
   assert.equal(trackCompatibility(['mixamorig:Hips'], ['Hips']).matched, 0);
@@ -84,4 +97,23 @@ test('starter combo uses only clips that exist', () => {
   assert.deepEqual(c[0].steps.map((s) => s.clip), ['Idle', 'Running', 'Jump', 'Punch', 'Idle']);
   assert.equal(c[0].steps[3].eventVfx, 'projectile');
   assert.deepEqual(defaultCombos(['Dance']), []);
+});
+
+test('Studio Combat Pack: 17 clips, valid GLB, catalog coverage', async () => {
+  const { deflateSync } = await import('node:zlib');
+  const { buildCombatPackGlb, COMBAT_CLIPS } = await import('../src/sample/combatPack');
+  const b = buildCombatPackGlb((d) => new Uint8Array(deflateSync(d)));
+  const s = inspectGltf(b, 'combat-pack.glb');
+  assert.equal(s.animations.length, 17);
+  assert.deepEqual(s.warnings, []);
+  assert.equal(s.joints, 15);
+  const names = COMBAT_CLIPS.map((c) => c.name);
+  for (const id of ['jab_l', 'jab_r', 'hook', 'uppercut', 'backfist', 'front_kick', 'side_kick', 'spin_kick', 'jump_kick', 'backflip', 'roll', 'hit', 'fall', 'recover', 'block', 'dodge', 'stance'])
+    assert.ok(clipsForMove(MOVES.find((m) => m.id === id)!, names).length > 0, `catalog move ${id} not covered`);
+  // quaternion tracks are unit length
+  const { json, bin } = parseContainer(b);
+  const acc = json.accessors[json.animations[6].samplers[0].output];
+  const bv = json.bufferViews[acc.bufferView];
+  const f = new Float32Array(bin!.buffer.slice(bin!.byteOffset + bv.byteOffset, bin!.byteOffset + bv.byteOffset + acc.count * 16));
+  for (let i = 0; i < acc.count; i++) assert.ok(Math.abs(Math.hypot(f[i * 4], f[i * 4 + 1], f[i * 4 + 2], f[i * 4 + 3]) - 1) < 1e-4);
 });

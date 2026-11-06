@@ -9,6 +9,7 @@
 | React 19 / React DOM / scheduler | MIT | bundled |
 | **RobotExpressive.glb** — model by Tomás Laulhé (Quaternius), modifications by Don McCurdy | **CC0 1.0** — assets/robot-expressive.LICENSE.md | demo character |
 | Procedural weapons, icons, test mannequin | CC0 (original work) | generated in code |
+| **Studio Combat Pack** (17 keyframed clips, `combat-pack.glb`) | **CC0 1.0** — original work authored in `src/sample/combatPack.ts` | importable animation library |
 | Build/test tools: esbuild (MIT), TypeScript (Apache-2.0), tsx (MIT), Playwright (Apache-2.0), sharp (Apache-2.0) | — | not shipped |
 
 ## Backend / AI models (not shipped; installed by the user)

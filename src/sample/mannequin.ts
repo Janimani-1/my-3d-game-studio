@@ -305,6 +305,7 @@ export interface CharacterDesign {
   texture: () => Uint8Array; // 64x64 RGBA, 4 horizontal rows used as an atlas
   magFilter: number;
   extraClips?: Clip[];
+  clips?: Clip[]; // replaces the default test clips
 }
 
 export const MANNEQUIN: CharacterDesign = {
@@ -397,7 +398,7 @@ export function buildCharacterGlb(deflate: (d: Uint8Array) => Uint8Array, design
     nodes.push({ name: j.name, translation: j.t, ...(children.length ? { children } : {}) });
   });
 
-  const animations = [...CLIPS, ...(design.extraClips ?? [])].map((clip) => {
+  const animations = (design.clips ?? [...CLIPS, ...(design.extraClips ?? [])]).map((clip) => {
     const samplers: any[] = [];
     const channels: any[] = [];
     for (const tr of clip.tracks) {

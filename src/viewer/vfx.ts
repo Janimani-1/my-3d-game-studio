@@ -139,6 +139,42 @@ export class VfxSystem {
       const dir = new T.Vector3(this.rand(1), this.rand(1), this.rand(1)).normalize().multiplyScalar(u * (0.3 + Math.random() * 0.9) * p.speed * scale);
       this.emit(at, [dir.x, dir.y, dir.z], k % 3 ? core : edge, u * 0.05 * p.size * scale * (0.5 + Math.random()), 0.4 + Math.random() * 0.5);
     }
+    // ice: real shard meshes that fly out, fall and fade
+    if (p.element === 'ice') {
+      const shardGeo = new T.TetrahedronGeometry(u * 0.025 * p.size * scale, 0);
+      const shardMat = new T.MeshStandardMaterial({ color: 0xcff4ff, emissive: 0x4ab8ff, emissiveIntensity: 0.6, roughness: 0.1, metalness: 0.1, transparent: true, opacity: 0.95 });
+      const shards = Array.from({ length: 14 }, () => {
+        const m = new T.Mesh(shardGeo, shardMat);
+        m.position.copy(at);
+        m.userData.v = new T.Vector3(this.rand(1), Math.random() * 1.2, this.rand(1)).normalize().multiplyScalar(u * (0.6 + Math.random()) * p.speed);
+        m.userData.r = new T.Vector3(this.rand(8), this.rand(8), this.rand(8));
+        this.scene.add(m);
+        return m;
+      });
+      let st = 0;
+      this.effects.push({
+        update: (dt) => {
+          st += dt;
+          for (const m of shards) {
+            m.userData.v.y -= u * 2.5 * dt;
+            m.position.addScaledVector(m.userData.v, dt);
+            m.rotation.x += m.userData.r.x * dt;
+            m.rotation.y += m.userData.r.y * dt;
+          }
+          shardMat.opacity = Math.max(0, 0.95 * (1 - st / 0.9));
+          return st < 0.9;
+        },
+        dispose: () => {
+          for (const m of shards) this.scene.remove(m);
+          shardGeo.dispose();
+          shardMat.dispose();
+        },
+      });
+    }
+    // fire: rising embers
+    if (p.element === 'fire') {
+      for (let k = 0; k < 40 * p.intensity; k++) this.emit(at, [this.rand(u * 0.15), u * (0.3 + Math.random() * 0.6), this.rand(u * 0.15)], new T.Color('#ffb347'), u * 0.015 * p.size, 0.8 + Math.random() * 0.6);
+    }
     // flash light
     const light = new T.PointLight(core, 4 * p.intensity, u * 3);
     light.position.copy(at);

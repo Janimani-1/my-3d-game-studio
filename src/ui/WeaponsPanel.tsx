@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import type { AppApi } from './App';
 import { useI18n, useUi, ComingLater } from './common';
 import { SaveBar } from './CharacterPanel';
@@ -8,9 +9,12 @@ import type { VfxSettings, WeaponSettings } from '../core/project';
 const MODES: VfxSettings['mode'][] = ['projectile', 'beam', 'beam2', 'lightning'];
 const ELEMENTS: Element[] = ['fire', 'ice', 'energy', 'lightning'];
 
+const TRAIL_COLORS: Record<WeaponSettings['element'], string> = { none: '#dfe8ff', fire: '#ff7a1a', ice: '#7fdcff', electric: '#a98bff' };
+
 export function WeaponsPanel({ api }: { api: AppApi }) {
   const { t, n } = useI18n();
   const ui = useUi();
+  const [trail, setTrail] = useState(false);
   const c = api.current;
   if (!c || !c.project.files.some((f) => f.role === 'main')) return <div className="card muted">{t('viewer.noModel')}</div>;
   const v = api.viewer;
@@ -112,12 +116,20 @@ export function WeaponsPanel({ api }: { api: AppApi }) {
             <input key={k} type="range" min={-180} max={180} step={5} value={w.rot[k]} onChange={(e) => { const rot = [...w.rot] as [number, number, number]; rot[k] = +e.target.value; setW({ rot }); }} aria-label={`rot-${'xyz'[k]}`} />
           ))}
         </div>
+        <div className="row wrap">
+          <button className="btn btn-primary" disabled={!v || !w.enabled} onClick={() => { if (!v?.throwChain()) ui.toast(t('weap.chainNeedsWeapon'), 'warn'); }} data-testid="throw-chain">⛓ {t('weap.chain')}</button>
+          <label className="toggle">
+            <input type="checkbox" checked={trail} disabled={!v || !w.enabled} onChange={(e) => { setTrail(e.target.checked); v?.setTrail(e.target.checked, TRAIL_COLORS[w.element]); }} data-testid="trail-toggle" />
+            <span>{t('weap.trail')}</span>
+          </label>
+        </div>
+        <p className="muted tiny">{t('weap.chainNote')}</p>
         <label className="field">
           <span>{t('weap.scale')}: ×{n(w.scale, 2)}</span>
           <input type="range" min={0.3} max={2.5} step={0.05} value={w.scale} onChange={(e) => setW({ scale: +e.target.value })} />
         </label>
       </section>
-      <ComingLater items={[t('weap.later')]} />
+      <ComingLater items={[t('weap.laterV2')]} />
     </div>
   );
 }

@@ -87,6 +87,15 @@ export function buildWeapon(T: any, type: WeaponType, element: WeaponElement, H:
       break;
     }
   }
+  // sockets for trails / effects: base of blade (25% up) and tip
+  const box = new T.Box3().setFromObject(g);
+  const tip = new T.Object3D();
+  tip.name = 'tip';
+  tip.position.set(0, box.max.y, 0);
+  const base = new T.Object3D();
+  base.name = 'trailBase';
+  base.position.set(0, box.max.y * 0.3, 0);
+  g.add(tip, base);
   return g;
 }
 

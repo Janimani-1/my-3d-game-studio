@@ -9,7 +9,7 @@ import { fileMeta } from './importLogic';
 import type { ArenaConfig, SequenceStep } from '../viewer/engine';
 
 const SPEEDS = [0.25, 0.5, 1, 1.5, 2];
-const EVENT_VFX: ComboStep['eventVfx'][] = ['none', 'projectile', 'beam', 'beam2', 'lightning'];
+const EVENT_VFX: ComboStep['eventVfx'][] = ['none', 'projectile', 'beam', 'beam2', 'lightning', 'chain'];
 
 export function AnimatePanel({ api }: { api: AppApi }) {
   const { t, n, lang } = useI18n();
@@ -47,6 +47,17 @@ export function AnimatePanel({ api }: { api: AppApi }) {
     api.updateViewer({ clipIndex: i });
   }
 
+  async function addPack() {
+    if (!v) return;
+    try {
+      const r = await fetch('./combat-pack.glb');
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      await importAnim([new File([await r.blob()], 'studio-combat-pack.glb', { type: 'model/gltf-binary' })]);
+    } catch (e: any) {
+      ui.toast(t('err.generic', { msg: e?.message ?? String(e) }), 'error');
+    }
+  }
+
   async function importAnim(list: File[]) {
     const f = list[0];
     if (!f || !v) return;
@@ -57,7 +68,7 @@ export function AnimatePanel({ api }: { api: AppApi }) {
         const fm = await fileMeta(f, f.name, 'animation');
         await api.addFiles([fm]);
         api.setClips(v.clipInfo());
-        ui.toast(t('anim.imported', { n: n(r.added.length) }), 'ok');
+        ui.toast(t('anim.imported', { n: n(r.added.length) }) + (r.retargeted.length ? ` · ${t('anim.retargeted', { n: n(r.retargeted.length) })}` : ''), 'ok');
       }
       if (r.rejected.length) ui.toast(t('anim.rejected', { list: r.rejected.map((x) => `${x.name} (${x.reason})`).join(', ') }), 'warn');
     } catch (e: any) {
@@ -156,6 +167,8 @@ export function AnimatePanel({ api }: { api: AppApi }) {
           </>
         )}
         <div className="divider" />
+        <button className="btn btn-primary btn-big" onClick={addPack} disabled={!v || api.clips.some((x) => x.source.startsWith('studio-combat-pack'))} data-testid="add-pack">🥋 {t('anim.pack')}</button>
+        <p className="muted tiny">{t('anim.packNote')}</p>
         <button className="btn" onClick={() => fileRef.current?.click()} disabled={!v} data-testid="import-anim">⬇ {t('anim.importClips')}</button>
         <input ref={fileRef} type="file" hidden onChange={(e) => importAnim([...(e.target.files ?? [])])} data-testid="anim-file" />
         <p className="muted tiny">{t('anim.importNote')}</p>
@@ -196,7 +209,7 @@ export function AnimatePanel({ api }: { api: AppApi }) {
                   <label className="field"><span>{t('anim.event')} {st.eventAt >= 0 ? `${n(st.eventAt * 100)}%` : ''}</span>
                     <span className="row">
                       <select value={st.eventVfx} onChange={(e) => setStep(i, { eventVfx: e.target.value as ComboStep['eventVfx'], eventAt: e.target.value === 'none' ? -1 : st.eventAt < 0 ? 0.5 : st.eventAt })}>
-                        {EVENT_VFX.map((m) => <option key={m} value={m}>{m === 'none' ? t('anim.eventNone') : t(`weap.modes.${m}` as any)}</option>)}
+                        {EVENT_VFX.map((m) => <option key={m} value={m}>{m === 'none' ? t('anim.eventNone') : m === 'chain' ? t('weap.chain') : t(`weap.modes.${m}` as any)}</option>)}
                       </select>
                       {st.eventVfx !== 'none' && <input type="range" min={0} max={1} step={0.05} value={Math.max(0, st.eventAt)} onChange={(e) => setStep(i, { eventAt: +e.target.value })} />}
                     </span>

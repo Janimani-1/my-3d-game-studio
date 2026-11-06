@@ -156,6 +156,7 @@ export function CreatePanel({ api }: { api: AppApi }) {
         ))}
       </ol>
       <div className="alert alert-warn small">{t('create.limit')}</div>
+      <div className="alert alert-error small" data-testid="hf-unavailable">{t('create.unavailable')}</div>
 
       <section className="card">
         <h3>1 · {t('create.refs')}</h3>

@@ -67,6 +67,10 @@ const tmp = join(ROOT, '.build-tmp');
 mkdirSync(tmp, { recursive: true });
 await build({ entryPoints: [join(ROOT, 'src/sample/mannequin.ts')], outfile: join(tmp, 'png.mjs'), bundle: true, format: 'esm', platform: 'node', logLevel: 'warning' });
 const { encodePng } = await import(join(tmp, 'png.mjs') + `?t=${Date.now()}`);
+// Studio Combat Pack (17 original keyframed clips, CC0) on the studio humanoid rig
+await build({ entryPoints: [join(ROOT, 'src/sample/combatPack.ts')], outfile: join(tmp, 'pack.mjs'), bundle: true, format: 'esm', platform: 'node', logLevel: 'warning' });
+const { buildCombatPackGlb } = await import(join(tmp, 'pack.mjs') + `?t=${Date.now()}`);
+writeFileSync(join(DIST, 'combat-pack.glb'), buildCombatPackGlb((d) => new Uint8Array(deflateSync(d))));
 function icon(size) {
   const px = new Uint8Array(size * size * 4);
   const s = size / 512, cx = 256 * s, cy = 270 * s, r = 150 * s;
