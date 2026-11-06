@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.1 — 2026-11-06
+- Image→3D: separate **Gallery** button (opens Android photo picker for photos/videos) and **Camera** button (photo or video).
+- Videos: original kept; 4–24 evenly spaced frames extracted at native resolution (PNG) as reference images.
+- Model "Choose files" no longer shows camera options (non-image accept list that keeps .glb selectable).
+- Shortcut from Projects to photo import; corrected empty-projects text.
+- e2e: 29/29 (new step: real recorded WebM → 8 frames at 640×480).
+
 ## 0.2.0 — 2026-11-06
 - **Three.js r169 vendored and bundled** (lazy chunk); no CDN; full offline incl. 3D engine and Draco decoder.
 - New navigation: Projects · Image→3D · Character · Combat · Weapons & VFX · Export.

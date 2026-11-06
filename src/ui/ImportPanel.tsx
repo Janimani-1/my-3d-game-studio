@@ -73,8 +73,8 @@ export function ImportPanel({ api }: { api: AppApi }) {
       >
         <h2>{t('import.title')}</h2>
         <p className="muted small">{t('import.hint')}</p>
-        {/* No accept filter: Android Chrome often greys out .glb files when one is set. Files are validated after selection. */}
-        <input ref={inputRef} type="file" multiple hidden onChange={(e) => handleFiles([...(e.target.files ?? [])])} data-testid="file-input" />
+        {/* Non-image accept list: no camera chooser on Android; octet-stream keeps .glb selectable. Files are validated after selection. */}
+        <input ref={inputRef} type="file" multiple hidden accept=".glb,.gltf,.bin,model/gltf-binary,model/gltf+json,application/octet-stream,application/json" onChange={(e) => handleFiles([...(e.target.files ?? [])])} data-testid="file-input" />
         <div className="row wrap">
           <button className="btn btn-primary btn-big" onClick={() => inputRef.current?.click()} disabled={busy}>
             {t('import.pick')}
@@ -84,6 +84,7 @@ export function ImportPanel({ api }: { api: AppApi }) {
           </button>
         </div>
         <p className="muted tiny">{t('import.sampleRobotNote')}</p>
+        <button className="btn" onClick={() => api.setTab('create')} data-testid="photo-shortcut">🖼 {t('import.photoShortcut')}</button>
         <p className="muted small desktop-only">{t('import.drop')}</p>
       </section>
 

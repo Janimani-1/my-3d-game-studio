@@ -8,7 +8,7 @@ Run: 2026-11-06T15:40:26.554Z in the build sandbox. **Environment:** headless Ch
 | Unit tests | ✅ 27/27 |
 | Production build | ✅ 20 files, 2.33 MB, self-contained |
 | Backend `main.py` | ✅ syntax check only — FastAPI/PyTorch not installable here, no GPU |
-| End-to-end | ✅ 28/28 |
+| End-to-end | ✅ 29/29 |
 
 ## E2E steps
 | Step | Result | Time |

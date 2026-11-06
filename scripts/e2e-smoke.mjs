@@ -123,6 +123,8 @@ await step('02 language switch EN/DE (LTR) and back', async () => {
 });
 
 await step('03 invalid file rejected with Persian error', async () => {
+  const acc = await tid('file-input').getAttribute('accept');
+  assert.ok(acc && acc.includes('.glb') && !/image|video/.test(acc), 'model picker must not offer camera');
   await tid('file-input').setInputFiles({ name: 'broken.glb', mimeType: 'application/octet-stream', buffer: Buffer.from('not a model') });
   assert.match(await tid('import-error').innerText(), /نامعتبر/);
 });
@@ -365,12 +367,31 @@ await step('23 Image→3D: 2400×1600 photo stored unchanged; Generate disabled 
   await page.screenshot({ path: join(shots, '23-create.png'), fullPage: false });
 });
 
+await step('23b gallery/camera inputs + video → full-resolution frames', async () => {
+  assert.equal(await tid('ref-input').getAttribute('accept'), 'image/*,video/*');
+  assert.equal(await tid('camera-input').getAttribute('capture'), 'environment');
+  // record a real 2-second WebM to use as a "walk-around video"
+  const vctx = await browser.newContext({ recordVideo: { dir: tmp, size: { width: 640, height: 480 } }, viewport: { width: 640, height: 480 } });
+  const vp = await vctx.newPage();
+  await vp.setContent('<body style="margin:0;background:linear-gradient(90deg,#c33,#36c)"><h1 style="font-size:120px;color:#fff">3D</h1></body>');
+  await vp.waitForTimeout(2200);
+  const vpath = await vp.video().path();
+  await vctx.close();
+  const before = await page.locator('.ref-grid li').count();
+  await tid('ref-input').setInputFiles({ name: 'walkaround.webm', mimeType: 'video/webm', buffer: readFileSync(vpath) });
+  await tid('video-list').waitFor({ timeout: 30000 });
+  await page.waitForFunction((b) => document.querySelectorAll('.ref-grid li').length >= b + 8, before, { timeout: 30000 });
+  await page.getByText(/640×480/).first().waitFor();
+  await page.screenshot({ path: join(shots, '23b-video-frames.png') });
+});
+
 await step('24 Image→3D client protocol against test-only mock backend', async () => {
   await ctx.unroute(/^https?:\/\/(?!localhost)/);
   await tid('backend-url').fill(`http://localhost:${MOCK}`);
   await tid('backend-token').fill('test-token');
   await tid('backend-check').click();
   await page.waitForFunction(() => /وصل است/.test(document.querySelector('[data-testid=backend-status]')?.textContent ?? ''), null, { timeout: 10000 });
+  await page.locator('button.ref', { has: page.locator('img[alt="barbarian.png"]') }).click();
   await tid('generate').click();
   await page.waitForFunction(() => document.querySelector('[data-testid=panel-character]'), null, { timeout: 30000 });
   await page.waitForFunction(() => (window.__m3gsViewer?.renderInfo().triangles ?? 0) >= 3237, null, { timeout: 30000 });

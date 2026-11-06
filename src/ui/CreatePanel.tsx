@@ -2,9 +2,14 @@ import { useEffect, useRef, useState } from 'react';
 import type { AppApi } from './App';
 import { useI18n, useUi, ComingLater } from './common';
 import * as db from '../core/db';
-import { checkSize, classify, formatBytes } from '../core/files';
+import { checkSize, formatBytes } from '../core/files';
 import { checkHealth, generate, loadBackendConfig, normaliseUrl, saveBackendConfig, type BackendConfig, type Health } from '../core/backend';
 import { buildProjectFromFiles, emptyProject, fileMeta } from './importLogic';
+import { extractFrames } from './videoFrames';
+
+const IMG_RE = /\.(png|jpe?g|webp)$/i;
+const isImage = (f: File) => /^image\/(png|jpeg|webp)$/.test(f.type) || IMG_RE.test(f.name);
+const isVideo = (f: File) => f.type.startsWith('video/') || /\.(mp4|webm|mov|3gp|mkv)$/i.test(f.name);
 
 /** Workflow: 1 photos → 2 generate mesh (GPU backend) → 3 rig (planned) → 4 animate → 5 export. */
 export function CreatePanel({ api }: { api: AppApi }) {
@@ -12,6 +17,9 @@ export function CreatePanel({ api }: { api: AppApi }) {
   const ui = useUi();
   const c = api.current;
   const fileRef = useRef<HTMLInputElement>(null);
+  const camRef = useRef<HTMLInputElement>(null);
+  const [frames, setFrames] = useState(8);
+  const [extracting, setExtracting] = useState('');
   const [cfg, setCfg] = useState<BackendConfig>(loadBackendConfig);
   const [health, setHealth] = useState<Health | null>(null);
   const [healthErr, setHealthErr] = useState('');
@@ -23,6 +31,7 @@ export function CreatePanel({ api }: { api: AppApi }) {
   const [thumbs, setThumbs] = useState<Record<string, { url: string; w: number; h: number }>>({});
 
   const refs = c?.project.files.filter((f) => f.role === 'reference') ?? [];
+  const videos = c?.project.files.filter((f) => f.role === 'video') ?? [];
 
   useEffect(() => {
     const out: Record<string, { url: string; w: number; h: number }> = {};
@@ -50,9 +59,30 @@ export function CreatePanel({ api }: { api: AppApi }) {
   }, [c?.project.id, refs.length]);
 
   async function addImages(list: File[]) {
-    const ok = list.filter((f) => classify(f.name) === 'image' && /\.(png|jpe?g|webp)$/i.test(f.name) && checkSize(f.size).ok);
-    if (!ok.length) return ui.toast(t('import.invalid', { msg: 'JPG / PNG / WebP' }), 'error');
-    const metas = await Promise.all(ok.map((f) => fileMeta(f, f.name, 'reference')));
+    const imgs = list.filter((f) => isImage(f) && checkSize(f.size).ok);
+    const vids = list.filter((f) => isVideo(f) && checkSize(f.size).ok);
+    if (!imgs.length && !vids.length) {
+      if (fileRef.current) fileRef.current.value = '';
+      if (camRef.current) camRef.current.value = '';
+      return ui.toast(t('import.invalid', { msg: t('create.formats') }), 'error');
+    }
+    const named = (f: File, i: number) => (IMG_RE.test(f.name) || isVideo(f) && /\.\w+$/.test(f.name) ? f.name : `${t('create.photoWord')}-${Date.now()}-${i}.${(f.type.split('/')[1] || 'jpg').replace('jpeg', 'jpg')}`);
+    const metas = await Promise.all(imgs.map((f, i) => fileMeta(f, named(f, i), 'reference')));
+    // Videos: keep the original, and extract evenly spaced full-resolution frames as reference images.
+    for (const [vi, v] of vids.entries()) {
+      try {
+        setExtracting(t('create.extracting', { n: 0, total: frames }));
+        const fr = await extractFrames(v, frames, (k) => setExtracting(t('create.extracting', { n: k, total: frames })));
+        const base = named(v, vi).replace(/\.[^.]+$/, '');
+        metas.push(await fileMeta(v, named(v, vi), 'video'));
+        for (const [k, x] of fr.entries()) metas.push(await fileMeta(x.blob, `${base}-frame-${String(k + 1).padStart(2, '0')}.png`, 'reference'));
+      } catch (e: any) {
+        ui.toast(t('create.videoFailed', { msg: e?.message ?? String(e) }), 'error');
+      } finally {
+        setExtracting('');
+      }
+    }
+    if (!metas.length) return;
     try {
       if (!c) {
         const p = emptyProject(t('create.newRefProject'), 'references');
@@ -62,12 +92,13 @@ export function CreatePanel({ api }: { api: AppApi }) {
         api.openProject(p, blobs, true);
         api.bumpProjects();
       } else if (!(await api.addFiles(metas))) return;
-      setSelected(metas[0].meta.id);
+      setSelected((metas.find((m) => m.meta.role === 'reference') ?? metas[0]).meta.id);
       ui.toast(t('create.refsSaved'), 'ok');
     } catch (e: any) {
       ui.toast(e?.code === 'quota' ? t('err.quota') : t('err.generic', { msg: e?.message ?? String(e) }), 'error');
     } finally {
       if (fileRef.current) fileRef.current.value = '';
+      if (camRef.current) camRef.current.value = '';
     }
   }
 
@@ -129,8 +160,25 @@ export function CreatePanel({ api }: { api: AppApi }) {
       <section className="card">
         <h3>1 · {t('create.refs')}</h3>
         <p className="muted small">{t('create.refsNote')}</p>
-        <button className="btn btn-primary btn-big" onClick={() => fileRef.current?.click()} data-testid="add-refs">🖼 {t('create.addRefs')}</button>
-        <input ref={fileRef} type="file" multiple hidden onChange={(e) => addImages([...(e.target.files ?? [])])} data-testid="ref-input" />
+        <div className="row wrap media-buttons">
+          <button className="btn btn-primary btn-big" onClick={() => fileRef.current?.click()} data-testid="add-refs">🖼 {t('create.gallery')}</button>
+          <button className="btn btn-big" onClick={() => camRef.current?.click()} data-testid="camera">📷 {t('create.camera')}</button>
+        </div>
+        {/* accept="image/*,video/*" (no capture) → Android opens the Photo Picker / gallery directly */}
+        <input ref={fileRef} type="file" accept="image/*,video/*" multiple hidden onChange={(e) => addImages([...(e.target.files ?? [])])} data-testid="ref-input" />
+        {/* capture → opens the camera app; switch photo/video inside the camera if your camera app allows it */}
+        <input ref={camRef} type="file" accept="image/*,video/*" capture="environment" hidden onChange={(e) => addImages([...(e.target.files ?? [])])} data-testid="camera-input" />
+        <p className="muted tiny">{t('create.cameraNote')}</p>
+        <label className="field">
+          <span>{t('create.framesPerVideo', { n: n(frames) })}</span>
+          <input type="range" min={4} max={24} step={1} value={frames} onChange={(e) => setFrames(+e.target.value)} />
+        </label>
+        {extracting && <div className="progress"><div className="spinner" /> {extracting}</div>}
+        {videos.length > 0 && (
+          <ul className="file-list" data-testid="video-list">
+            {videos.map((f) => <li key={f.id} className="small">🎬 <span className="mono">{f.name}</span> <span className="muted">{formatBytes(f.size)}</span></li>)}
+          </ul>
+        )}
         {refs.length > 0 && (
           <ul className="ref-grid" data-testid="ref-grid">
             {refs.map((f) => (

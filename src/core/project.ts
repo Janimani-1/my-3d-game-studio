@@ -38,7 +38,7 @@ export interface AssetFileMeta {
   size: number;
   type: string;
   sha256: string;
-  role: 'main' | 'resource' | 'reference' | 'animation';
+  role: 'main' | 'resource' | 'reference' | 'animation' | 'video';
 }
 
 export interface ComboStep {

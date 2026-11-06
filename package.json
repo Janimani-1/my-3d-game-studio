@@ -1,6 +1,6 @@
 {
   "name": "my-3d-game-studio",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "description": "Personal mobile-first PWA for viewing, managing and (later) animating 3D game characters.",
   "type": "module",
