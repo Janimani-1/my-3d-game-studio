@@ -2,9 +2,9 @@
  * Precaches every built file (app shell, bundled Three.js chunk, Draco decoder, demo model),
  * so the installed app works fully offline. User projects live in IndexedDB, never here.
  */
-const VERSION = '0.2.1+71f4d51a';
+const VERSION = '0.3.0+1271f05e';
 const CACHE = 'm3gs-' + VERSION;
-const SHELL = ["./","./app.css","./app.js","./chunk-7O6LICKT.js","./chunk-7UTEMWCX.js","./chunk-C4JXJ3ZS.js","./chunk-MJ7WEKP6.js","./chunk-QK2NU65X.js","./chunk-SQE76S5B.js","./chunk-XP5ZWPEF.js","./chunk-XSEYFWQO.js","./chunk-YIC5ND5Y.js","./draco_decoder.js","./draco_decoder.wasm","./draco_wasm_wrapper.js","./icon-192.png","./icon-512.png","./icon.svg","./index.html","./manifest.webmanifest","./robot-expressive.glb"];
+const SHELL = ["./","./app.css","./app.js","./chunk-7O6LICKT.js","./chunk-7UTEMWCX.js","./chunk-C4JXJ3ZS.js","./chunk-MJ7WEKP6.js","./chunk-QK2NU65X.js","./chunk-SQE76S5B.js","./chunk-XP5ZWPEF.js","./chunk-XSEYFWQO.js","./chunk-YIC5ND5Y.js","./combat-pack.glb","./draco_decoder.js","./draco_decoder.wasm","./draco_wasm_wrapper.js","./icon-192.png","./icon-512.png","./icon.svg","./index.html","./manifest.webmanifest","./robot-expressive.glb"];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
