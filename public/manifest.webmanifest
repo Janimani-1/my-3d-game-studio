@@ -1,0 +1,18 @@
+{
+  "name": "My 3D Game Studio",
+  "short_name": "3D Studio",
+  "description": "Personal 3D model viewer, animation preview and asset manager",
+  "lang": "fa",
+  "dir": "rtl",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#12141b",
+  "theme_color": "#1a1d27",
+  "icons": [
+    { "src": "./icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "./icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "./icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

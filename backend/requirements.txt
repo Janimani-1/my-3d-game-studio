@@ -1,0 +1,10 @@
+# Web API (pinned)
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+python-multipart==0.0.20
+pillow==11.1.0
+# TripoSR runtime — install per backend/README.md (PyTorch with CUDA must match your GPU/driver):
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+#   git clone https://github.com/VAST-AI-Research/TripoSR && pip install -r TripoSR/requirements.txt
+rembg==2.0.61
+trimesh==4.5.3

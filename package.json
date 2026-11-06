@@ -1,0 +1,27 @@
+{
+  "name": "my-3d-game-studio",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Personal mobile-first PWA for viewing, managing and (later) animating 3D game characters.",
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "serve": "node scripts/serve.mjs dist 5173",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "tsx --test tests/*.test.ts",
+    "test:e2e": "node scripts/e2e-smoke.mjs",
+    "check": "npm run typecheck && npm test && npm run build && npm run test:e2e"
+  },
+  "dependencies": {
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2",
+    "playwright": "1.63.0",
+    "tsx": "4.23.12",
+    "typescript": "6.0.3",
+    "sharp": "0.35.4"
+  }
+}
